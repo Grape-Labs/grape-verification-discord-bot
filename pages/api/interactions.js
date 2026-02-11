@@ -1,7 +1,14 @@
 // pages/api/interactions.js
 const { verifyKey } = require("discord-interactions");
-//const { handleSlashCommand } = require("../../lib/discord/commands");
-const { handleSlashCommand } = require("../../lib/discord/slash-commands");
+
+let cachedSlashHandler = null;
+function getSlashHandler() {
+  if (!cachedSlashHandler) {
+    const { handleSlashCommand } = require("../../lib/discord/slash-commands");
+    cachedSlashHandler = handleSlashCommand;
+  }
+  return cachedSlashHandler;
+}
 
 function readRawBody(req) {
   return new Promise((resolve, reject) => {
@@ -50,23 +57,15 @@ module.exports = async (req, res) => {
   const rawBuf = await readRawBody(req);
   const rawBody = rawBuf.toString("utf8");
 
-  let interaction;
-  try {
-    interaction = JSON.parse(rawBody);
-  } catch {
-    res.statusCode = 400;
-    return res.end("Invalid JSON");
-  }
-
   const sig = normHeader(req.headers["x-signature-ed25519"]);
   const ts = normHeader(req.headers["x-signature-timestamp"]);
 
-  // Optional tolerance: if something sends unsigned PING, reply only to type=1
-  if ((!sig || !ts) && interaction?.type === 1) {
-    return sendPong(res);
-  }
-
   if (!sig || !ts) {
+    // Optional tolerance: if something sends unsigned PING, reply only to type=1
+    try {
+      const interaction = JSON.parse(rawBody);
+      if (interaction?.type === 1) return sendPong(res);
+    } catch {}
     res.statusCode = 400;
     return res.end("Missing signature headers");
   }
@@ -83,11 +82,20 @@ module.exports = async (req, res) => {
     return res.end("Invalid signature");
   }
 
+  let interaction;
+  try {
+    interaction = JSON.parse(rawBody);
+  } catch {
+    res.statusCode = 400;
+    return res.end("Invalid JSON");
+  }
+
   if (interaction.type === 1) {
     return sendPong(res);
   }
 
   if (interaction.type === 2) {
+    const handleSlashCommand = getSlashHandler();
     return handleSlashCommand(interaction, res);
   }
 
