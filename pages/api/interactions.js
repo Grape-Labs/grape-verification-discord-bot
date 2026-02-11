@@ -1,6 +1,6 @@
 // pages/api/interactions.js
 const { verifyKey } = require("discord-interactions");
-const { handleSlashCommand } = require("../../lib/discord/commands");
+const { handleSlashCommand } = require("../../lib/discord/slash-commands");
 
 let kv = null;
 
