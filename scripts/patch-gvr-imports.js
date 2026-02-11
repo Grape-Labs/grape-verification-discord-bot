@@ -8,8 +8,10 @@ function patchFile(filePath) {
 
   const before = fs.readFileSync(filePath, "utf8");
   const after = before
-    .replaceAll("@noble/hashes/sha256", "@noble/hashes/sha2.js")
-    .replaceAll("@noble/hashes/utils", "@noble/hashes/utils.js");
+    // Normalize any sha256 import form to the v2-exported sha2.js entry.
+    .replace(/@noble\/hashes\/sha256(?:\.js)*/g, "@noble/hashes/sha2.js")
+    // Normalize utils import so repeated postinstall runs stay stable.
+    .replace(/@noble\/hashes\/utils(?:\.js)*/g, "@noble/hashes/utils.js");
 
   if (after === before) return { changed: false, skipped: false };
   fs.writeFileSync(filePath, after, "utf8");
