@@ -61,11 +61,6 @@ module.exports = async (req, res) => {
   const ts = normHeader(req.headers["x-signature-timestamp"]);
 
   if (!sig || !ts) {
-    // Optional tolerance: if something sends unsigned PING, reply only to type=1
-    try {
-      const interaction = JSON.parse(rawBody);
-      if (interaction?.type === 1) return sendPong(res);
-    } catch {}
     res.statusCode = 400;
     return res.end("Missing signature headers");
   }
