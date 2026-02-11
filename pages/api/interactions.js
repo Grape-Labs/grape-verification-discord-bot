@@ -40,7 +40,7 @@ module.exports = async (req, res) => {
     return res.end("Method Not Allowed");
   }
 
-  const publicKey = process.env.DISCORD_PUBLIC_KEY;
+  const publicKey = String(process.env.DISCORD_PUBLIC_KEY || "").trim();
   if (!publicKey) {
     res.statusCode = 500;
     return res.end("Missing DISCORD_PUBLIC_KEY");
@@ -73,6 +73,12 @@ module.exports = async (req, res) => {
 
   const isValid = verifyKey(rawBody, sig, ts, publicKey);
   if (!isValid) {
+    console.error("[discord] Invalid signature", {
+      type: interaction?.type,
+      hasSig: Boolean(sig),
+      hasTs: Boolean(ts),
+      ua: normHeader(req.headers["user-agent"]),
+    });
     res.statusCode = 401;
     return res.end("Invalid signature");
   }
