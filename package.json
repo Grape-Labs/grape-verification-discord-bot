@@ -8,7 +8,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "register:commands": "node scripts/register-commands.js"
+    "register:commands": "node scripts/register-commands.js",
+    "postinstall": "node scripts/patch-gvr-imports.js"
   },
   "keywords": [],
   "author": "",
