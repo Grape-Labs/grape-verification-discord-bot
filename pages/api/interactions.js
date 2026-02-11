@@ -1,106 +1,64 @@
 // pages/api/interactions.js
 const { verifyKey } = require("discord-interactions");
+const { handleSlashCommand } = require("../../lib/discord/commands");
 
-let cachedSlashHandler = null;
-function getSlashHandler() {
-  if (!cachedSlashHandler) {
-    const { handleSlashCommand } = require("../../lib/discord/slash-commands");
-    cachedSlashHandler = handleSlashCommand;
+let kv = null;
+
+async function getKV() {
+  if (kv) return kv;
+  try {
+    const mod = require("@vercel/kv");
+    kv = mod.kv;
+    // Touch it once to ensure env is present
+    // (If env missing, this will throw and we fall back)
+    await kv.ping?.();
+    return kv;
+  } catch (e) {
+    kv = null;
+    return null;
   }
-  return cachedSlashHandler;
 }
 
-function readRawBody(req) {
-  return new Promise((resolve, reject) => {
-    const chunks = [];
-    req.on("data", (c) => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
-    req.on("end", () => resolve(Buffer.concat(chunks)));
-    req.on("error", reject);
-  });
-}
-
-function normHeader(h) {
-  if (!h) return "";
-  return Array.isArray(h) ? h[0] : String(h);
-}
-
-function sendPong(res) {
-  const body = '{"type":1}';
-  res.statusCode = 200;
-  res.setHeader("Content-Type", "application/json; charset=utf-8");
-  res.setHeader("Content-Length", Buffer.byteLength(body));
-  res.setHeader("Cache-Control", "no-store");
-  res.end(body);
+async function getRawBody(readable) {
+  const chunks = [];
+  for await (const chunk of readable) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
 }
 
 module.exports = async (req, res) => {
-  // Allow OPTIONS/HEAD probes (useful behind some proxies)
-  if (req.method === "OPTIONS" || req.method === "HEAD") {
-    res.statusCode = 204;
-    res.setHeader("Cache-Control", "no-store");
-    return res.end();
-  }
+  if (req.method !== "POST") return res.status(405).end();
 
-  if (req.method !== "POST") {
-    res.statusCode = 405;
-    res.setHeader("Allow", "POST, OPTIONS, HEAD");
-    return res.end("Method Not Allowed");
-  }
+  const rawBody = await getRawBody(req);
+  const signature = req.headers["x-signature-ed25519"];
+  const timestamp = req.headers["x-signature-timestamp"];
 
-  const publicKey = String(process.env.DISCORD_PUBLIC_KEY || "").trim();
-  if (!publicKey) {
-    res.statusCode = 500;
-    return res.end("Missing DISCORD_PUBLIC_KEY");
-  }
+  const isValid = await verifyKey(
+    rawBody,
+    signature,
+    timestamp,
+    process.env.DISCORD_PUBLIC_KEY
+  );
 
-  // IMPORTANT: raw body must be exact
-  const rawBuf = await readRawBody(req);
-  const rawBody = rawBuf.toString("utf8");
+  if (!isValid) return res.status(401).end("Invalid signature");
 
-  const sig = normHeader(req.headers["x-signature-ed25519"]);
-  const ts = normHeader(req.headers["x-signature-timestamp"]);
+  const interaction = JSON.parse(rawBody.toString("utf8"));
 
-  if (!sig || !ts) {
-    res.statusCode = 400;
-    return res.end("Missing signature headers");
-  }
-
-  let interactionType = null;
-  try {
-    interactionType = JSON.parse(rawBody)?.type ?? null;
-  } catch {}
-
-  const isValid = verifyKey(rawBody, sig, ts, publicKey);
-  if (!isValid) {
-    console.error("[discord] Invalid signature", {
-      type: interactionType,
-      hasSig: Boolean(sig),
-      hasTs: Boolean(ts),
-      ua: normHeader(req.headers["user-agent"]),
-    });
-    res.statusCode = 401;
-    return res.end("Invalid signature");
-  }
-
-  let interaction;
-  try {
-    interaction = JSON.parse(rawBody);
-  } catch {
-    res.statusCode = 400;
-    return res.end("Invalid JSON");
-  }
-
+  // Discord PING
   if (interaction.type === 1) {
-    return sendPong(res);
+    return res
+      .status(200)
+      .setHeader("Content-Type", "application/json")
+      .end('{"type":1}');
   }
 
+  // Slash commands
   if (interaction.type === 2) {
-    const handleSlashCommand = getSlashHandler();
     return handleSlashCommand(interaction, res);
   }
 
-  res.statusCode = 200;
-  return res.end();
+  return res.status(200).end();
 };
 
 module.exports.config = {
