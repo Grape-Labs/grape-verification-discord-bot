@@ -70,10 +70,15 @@ module.exports = async (req, res) => {
     return res.end("Missing signature headers");
   }
 
+  let interactionType = null;
+  try {
+    interactionType = JSON.parse(rawBody)?.type ?? null;
+  } catch {}
+
   const isValid = verifyKey(rawBody, sig, ts, publicKey);
   if (!isValid) {
     console.error("[discord] Invalid signature", {
-      type: interaction?.type,
+      type: interactionType,
       hasSig: Boolean(sig),
       hasTs: Boolean(ts),
       ua: normHeader(req.headers["user-agent"]),
